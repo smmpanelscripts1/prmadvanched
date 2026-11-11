@@ -9,10 +9,11 @@ From **Admin → Settings** you can set:
 - Auth background (login, register, password reset, new password, 2FA)
 - Captcha: hCaptcha, reCAPTCHA v2, or Cloudflare Turnstile on login / password reset / 2FA
 - Active sessions on `/account` (list and revoke unknown devices)
+- Panel IP firewall: ban list, panel-only whitelist, separate API whitelist (Wings `/api/remote` is not filtered). Optional auto-ban after failed logins.
 
 ## Version
 
-`1.3.0`
+`1.5.0`
 
 ## Install
 

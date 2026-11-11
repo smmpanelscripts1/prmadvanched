@@ -16,6 +16,7 @@
           <li>Giriş arka planı: login, kayıt, şifre sıfırlama, yeni şifre, 2FA.</li>
           <li>Captcha: hCaptcha, reCAPTCHA v2 veya Cloudflare Turnstile.</li>
           <li>Açık oturumlar: Account sayfasından görüntüle ve kapat.</li>
+          <li>IP firewall: ban, panel whitelist ve ayrı API whitelist.</li>
         </ul>
       </div>
     </div>

@@ -95,6 +95,57 @@
           '</div>';
         box.parentNode.insertBefore(cap, box.nextSibling);
       }
+      if (!document.getElementById('prm-adv-fw-box')) {
+        var fw = document.createElement('div');
+        fw.id = 'prm-adv-fw-box';
+        fw.className = 'box prm-adv-box';
+        fw.innerHTML =
+          '<div class="box-header with-border"><h3 class="box-title">IP firewall</h3></div>' +
+          '<div class="box-body">' +
+            '<p>Ban herkese uygulanır. Panel whitelist sadece tarayıcı/login içindir. API whitelist ayrıdır (otomasyon). Wings <code>/api/remote</code> muaf.</p>' +
+            '<p class="prm-adv-hint" id="prm-adv-fw-me">Senin IP: —</p>' +
+            '<div class="prm-adv-field"><label>Durum</label>' +
+              '<select id="prm-adv-fw-enabled"><option value="1">Açık</option><option value="0">Kapalı</option></select></div>' +
+            '<div class="prm-adv-field"><label>Başarısız girişte otomatik ban</label>' +
+              '<select id="prm-adv-fw-auto"><option value="0">Kapalı</option><option value="1">Açık</option></select></div>' +
+            '<div class="prm-adv-field"><label>Kaç başarısız girişten sonra</label>' +
+              '<input type="number" id="prm-adv-fw-strikes" min="2" max="50" value="5"></div>' +
+            '<div class="prm-adv-field"><label>Panel whitelist (sadece listedekiler panele girer)</label>' +
+              '<select id="prm-adv-fw-panel-wl"><option value="0">Kapalı</option><option value="1">Açık</option></select></div>' +
+            '<div class="prm-adv-field"><label>API whitelist (sadece listedekiler client/application API kullanır)</label>' +
+              '<select id="prm-adv-fw-api-wl"><option value="0">Kapalı</option><option value="1">Açık</option></select></div>' +
+            '<div class="prm-adv-actions"><button type="button" class="btn btn-sm btn-primary" id="prm-adv-fw-save">Ayarları kaydet</button></div>' +
+            '<div class="prm-adv-msg" id="prm-adv-msg-fwset"></div>' +
+            '<h4 style="margin-top:18px">Ban listesi</h4>' +
+            '<div class="prm-adv-field"><label>IP veya CIDR</label>' +
+              '<input type="text" id="prm-adv-fw-ip" placeholder="203.0.113.10 veya 203.0.113.0/24" autocomplete="off"></div>' +
+            '<div class="prm-adv-field"><label>Not (opsiyonel)</label>' +
+              '<input type="text" id="prm-adv-fw-note" placeholder="ör. brute force" autocomplete="off"></div>' +
+            '<div class="prm-adv-actions"><button type="button" class="btn btn-sm btn-danger" id="prm-adv-fw-add">Banla</button></div>' +
+            '<div class="prm-adv-msg" id="prm-adv-msg-fwadd"></div>' +
+            '<div id="prm-adv-fw-list" style="margin-top:12px"></div>' +
+            '<h4 style="margin-top:18px">Panel allow</h4>' +
+            '<p class="prm-adv-hint">Açınca listedeki IP dışında login/panel 403. Senin IP otomatik eklenir.</p>' +
+            '<div class="prm-adv-field"><label>IP veya CIDR</label>' +
+              '<input type="text" id="prm-adv-fw-panel-ip" placeholder="203.0.113.10" autocomplete="off"></div>' +
+            '<div class="prm-adv-field"><label>Not</label>' +
+              '<input type="text" id="prm-adv-fw-panel-note" placeholder="ev, ofis" autocomplete="off"></div>' +
+            '<div class="prm-adv-actions"><button type="button" class="btn btn-sm btn-primary" id="prm-adv-fw-panel-add">Panele ekle</button></div>' +
+            '<div class="prm-adv-msg" id="prm-adv-msg-fwpanel"></div>' +
+            '<div id="prm-adv-fw-panel-list" style="margin-top:12px"></div>' +
+            '<h4 style="margin-top:18px">API allow</h4>' +
+            '<p class="prm-adv-hint">Otomasyon / bot IP. Panel whitelist’ten bağımsız. Boşken açılamaz.</p>' +
+            '<div class="prm-adv-field"><label>IP veya CIDR</label>' +
+              '<input type="text" id="prm-adv-fw-api-ip" placeholder="198.51.100.20" autocomplete="off"></div>' +
+            '<div class="prm-adv-field"><label>Not</label>' +
+              '<input type="text" id="prm-adv-fw-api-note" placeholder="smm bot, n8n" autocomplete="off"></div>' +
+            '<div class="prm-adv-actions"><button type="button" class="btn btn-sm btn-primary" id="prm-adv-fw-api-add">API’ye ekle</button></div>' +
+            '<div class="prm-adv-msg" id="prm-adv-msg-fwapi"></div>' +
+            '<div id="prm-adv-fw-api-list" style="margin-top:12px"></div>' +
+          '</div>';
+        var after = document.getElementById('prm-adv-captcha-box') || box;
+        after.parentNode.insertBefore(fw, after.nextSibling);
+      }
       return true;
     }
 
@@ -228,6 +279,207 @@
       }).catch(function () { msg('captcha', 'Kaydedilemedi.', false); });
     }
 
+    function renderIpTable(listId, rows, emptyText, delAttr) {
+      var list = document.getElementById(listId);
+      if (!list) return;
+      if (!rows || !rows.length) {
+        list.innerHTML = '<p class="prm-adv-hint">' + emptyText + '</p>';
+        return;
+      }
+      var html = '<table class="table table-condensed" style="margin:0"><thead><tr><th>IP / CIDR</th><th>Not</th><th></th></tr></thead><tbody>';
+      rows.forEach(function (row) {
+        var note = (row.note || '') + (row.source === 'auto' ? ' (otomatik)' : '');
+        html += '<tr><td><code>' + String(row.ip || '').replace(/</g, '') + '</code></td><td>' + String(note).replace(/</g, '') + '</td>' +
+          '<td><button type="button" class="btn btn-xs btn-default" ' + delAttr + '="' + String(row.ip || '').replace(/"/g, '') + '">Kaldır</button></td></tr>';
+      });
+      html += '</tbody></table>';
+      list.innerHTML = html;
+    }
+
+    function renderBans(bans) {
+      renderIpTable('prm-adv-fw-list', bans, 'Banlı IP yok.', 'data-fw-del');
+      var list = document.getElementById('prm-adv-fw-list');
+      if (!list) return;
+      list.querySelectorAll('[data-fw-del]').forEach(function (btn) {
+        btn.addEventListener('click', function () { unban(btn.getAttribute('data-fw-del')); });
+      });
+    }
+
+    function renderAllow(scope, rows) {
+      var id = scope === 'api' ? 'prm-adv-fw-api-list' : 'prm-adv-fw-panel-list';
+      var attr = scope === 'api' ? 'data-fw-api-del' : 'data-fw-panel-del';
+      renderIpTable(id, rows, 'Allow listesi boş.', attr);
+      var list = document.getElementById(id);
+      if (!list) return;
+      list.querySelectorAll('[' + attr + ']').forEach(function (btn) {
+        btn.addEventListener('click', function () { removeAllow(scope, btn.getAttribute(attr)); });
+      });
+    }
+
+    function loadFirewall() {
+      fetch('/extensions/prmadvanched/firewall', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (!data) return;
+          var me = document.getElementById('prm-adv-fw-me');
+          if (me) me.textContent = 'Senin IP: ' + (data.currentIp || '—') + ' — panel whitelist açılınca bu IP allow’a yazılır.';
+          var en = document.getElementById('prm-adv-fw-enabled');
+          var au = document.getElementById('prm-adv-fw-auto');
+          var st = document.getElementById('prm-adv-fw-strikes');
+          var pw = document.getElementById('prm-adv-fw-panel-wl');
+          var aw = document.getElementById('prm-adv-fw-api-wl');
+          if (en) en.value = data.enabled ? '1' : '0';
+          if (au) au.value = data.autoban ? '1' : '0';
+          if (st) st.value = data.strikesMax || 5;
+          if (pw) pw.value = data.panelWhitelist ? '1' : '0';
+          if (aw) aw.value = data.apiWhitelist ? '1' : '0';
+          renderBans(data.bans || []);
+          renderAllow('panel', data.panelAllow || []);
+          renderAllow('api', data.apiAllow || []);
+        })
+        .catch(function () {});
+    }
+
+    function fwHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'X-CSRF-TOKEN': csrf(),
+        'X-XSRF-TOKEN': csrf(),
+        'X-Requested-With': 'XMLHttpRequest',
+        Accept: 'application/json'
+      };
+    }
+
+    function saveFirewall() {
+      var en = document.getElementById('prm-adv-fw-enabled');
+      var au = document.getElementById('prm-adv-fw-auto');
+      var st = document.getElementById('prm-adv-fw-strikes');
+      var pw = document.getElementById('prm-adv-fw-panel-wl');
+      var aw = document.getElementById('prm-adv-fw-api-wl');
+      fetch('/extensions/prmadvanched/firewall/settings', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: fwHeaders(),
+        body: JSON.stringify({
+          enabled: en ? en.value === '1' : true,
+          autoban: au ? au.value === '1' : false,
+          strikesMax: st ? parseInt(st.value, 10) || 5 : 5,
+          panelWhitelist: pw ? pw.value === '1' : false,
+          apiWhitelist: aw ? aw.value === '1' : false
+        })
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          msg('fwset', (res.body && res.body.message) || 'Kaydedilemedi.', false);
+          return;
+        }
+        msg('fwset', 'Firewall ayarları kaydedildi.', true);
+        if (res.body.panelAllow) renderAllow('panel', res.body.panelAllow);
+        if (res.body.apiAllow) renderAllow('api', res.body.apiAllow);
+        loadFirewall();
+      }).catch(function () { msg('fwset', 'Kaydedilemedi.', false); });
+    }
+
+    function addAllow(scope) {
+      var ipEl = document.getElementById(scope === 'api' ? 'prm-adv-fw-api-ip' : 'prm-adv-fw-panel-ip');
+      var noteEl = document.getElementById(scope === 'api' ? 'prm-adv-fw-api-note' : 'prm-adv-fw-panel-note');
+      var msgId = scope === 'api' ? 'fwapi' : 'fwpanel';
+      fetch('/extensions/prmadvanched/firewall/allow', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: fwHeaders(),
+        body: JSON.stringify({
+          scope: scope,
+          ip: ipEl ? ipEl.value : '',
+          note: noteEl ? noteEl.value : ''
+        })
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          msg(msgId, (res.body && res.body.message) || 'Eklenemedi.', false);
+          return;
+        }
+        if (ipEl) ipEl.value = '';
+        if (noteEl) noteEl.value = '';
+        msg(msgId, 'Allow listesine eklendi.', true);
+        renderAllow(scope, res.body.allow || []);
+      }).catch(function () { msg(msgId, 'Eklenemedi.', false); });
+    }
+
+    function removeAllow(scope, ip) {
+      var msgId = scope === 'api' ? 'fwapi' : 'fwpanel';
+      fetch('/extensions/prmadvanched/firewall/allow?scope=' + encodeURIComponent(scope) + '&ip=' + encodeURIComponent(ip), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: fwHeaders()
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          msg(msgId, (res.body && res.body.message) || 'Kaldırılamadı.', false);
+          return;
+        }
+        msg(msgId, 'Allow’dan çıkarıldı.', true);
+        renderAllow(scope, res.body.allow || []);
+        loadFirewall();
+      }).catch(function () { msg(msgId, 'Kaldırılamadı.', false); });
+    }
+
+    function banIp() {
+      var ip = document.getElementById('prm-adv-fw-ip');
+      var note = document.getElementById('prm-adv-fw-note');
+      fetch('/extensions/prmadvanched/firewall/ban', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': csrf(),
+          'X-XSRF-TOKEN': csrf(),
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify({
+          ip: ip ? ip.value : '',
+          note: note ? note.value : ''
+        })
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          msg('fwadd', (res.body && res.body.message) || 'Banlanamadı.', false);
+          return;
+        }
+        if (ip) ip.value = '';
+        if (note) note.value = '';
+        msg('fwadd', 'IP banlandı.', true);
+        renderBans(res.body.bans || []);
+      }).catch(function () { msg('fwadd', 'Banlanamadı.', false); });
+    }
+
+    function unban(ip) {
+      fetch('/extensions/prmadvanched/firewall/ban?ip=' + encodeURIComponent(ip), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {
+          'X-CSRF-TOKEN': csrf(),
+          'X-XSRF-TOKEN': csrf(),
+          'X-Requested-With': 'XMLHttpRequest',
+          Accept: 'application/json'
+        }
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, body: j }; });
+      }).then(function (res) {
+        if (!res.ok) {
+          msg('fwadd', (res.body && res.body.message) || 'Kaldırılamadı.', false);
+          return;
+        }
+        msg('fwadd', 'Ban kaldırıldı.', true);
+        renderBans(res.body.bans || []);
+      }).catch(function () { msg('fwadd', 'Kaldırılamadı.', false); });
+    }
+
     function boot() {
       if (!inject()) return;
       var capSave = document.getElementById('prm-adv-cap-save');
@@ -235,7 +487,28 @@
         capSave.setAttribute('data-bound', '1');
         capSave.addEventListener('click', saveCaptcha);
       }
+      var fwSave = document.getElementById('prm-adv-fw-save');
+      if (fwSave && !fwSave.getAttribute('data-bound')) {
+        fwSave.setAttribute('data-bound', '1');
+        fwSave.addEventListener('click', saveFirewall);
+      }
+      var fwAdd = document.getElementById('prm-adv-fw-add');
+      if (fwAdd && !fwAdd.getAttribute('data-bound')) {
+        fwAdd.setAttribute('data-bound', '1');
+        fwAdd.addEventListener('click', banIp);
+      }
+      var panelAdd = document.getElementById('prm-adv-fw-panel-add');
+      if (panelAdd && !panelAdd.getAttribute('data-bound')) {
+        panelAdd.setAttribute('data-bound', '1');
+        panelAdd.addEventListener('click', function () { addAllow('panel'); });
+      }
+      var apiAdd = document.getElementById('prm-adv-fw-api-add');
+      if (apiAdd && !apiAdd.getAttribute('data-bound')) {
+        apiAdd.setAttribute('data-bound', '1');
+        apiAdd.addEventListener('click', function () { addAllow('api'); });
+      }
       loadCaptcha();
+      loadFirewall();
       document.querySelectorAll('[data-adv-save]').forEach(function (btn) {
         if (btn.getAttribute('data-bound')) return;
         btn.setAttribute('data-bound', '1');

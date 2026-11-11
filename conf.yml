@@ -1,9 +1,9 @@
 info:
   name: "PRM Advanced"
   identifier: "prmadvanched"
-  description: "Logo, arka plan, captcha ve hesap oturum yönetimi."
+  description: "Logo, arka plan, captcha, oturum ve panel/API IP firewall."
   flags: ""
-  version: "1.3.0"
+  version: "1.5.0"
   target: "beta-2026-08"
   author: "Peto"
   icon: ""

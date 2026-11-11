@@ -133,9 +133,17 @@
 </script>
 @if($prmAdvCapProvider !== 'off')
   <style>
-    #prm-adv-captcha { margin: 16px 0 4px; min-height: 78px; }
-    #prm-adv-captcha-error { display: none; margin: 8px 0 0; color: #dd4b39; font-size: 12px; }
+    #prm-adv-captcha-host {
+      position: fixed;
+      z-index: 2147483000;
+      width: 300px;
+      pointer-events: auto;
+    }
+    #prm-adv-captcha-spacer { height: 72px; margin: 8px 0 10px; width: 100%; }
+    #prm-adv-captcha { min-height: 65px; }
+    #prm-adv-captcha-error { display: none; margin: 8px 0 0; color: #dd4b39; font-size: 12px; font-weight: 600; }
     #prm-adv-captcha-error.is-open { display: block; }
+    html.prm-adv-use-panel #prm-adv-captcha-host { display: none; }
   </style>
   <script>
   (function () {
@@ -144,10 +152,14 @@
     var token = '';
     var widgetId = null;
     var lastPath = '';
-    var scriptLoaded = false;
+    var scriptState = 'idle';
 
     function onAuth() {
       return location.pathname.indexOf('/auth') === 0;
+    }
+
+    function submitBtn() {
+      return document.querySelector('form button[type="submit"]') || document.querySelector('form button');
     }
 
     function showError(text) {
@@ -157,42 +169,81 @@
       el.classList.toggle('is-open', !!text);
     }
 
-    function loadScript(src, cb) {
-      if (scriptLoaded) { cb(); return; }
-      var s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.defer = true;
-      s.onload = function () { scriptLoaded = true; cb(); };
-      document.head.appendChild(s);
+    function ensureSpacer() {
+      var btn = submitBtn();
+      if (!btn || !btn.parentNode) return null;
+      var spacer = document.getElementById('prm-adv-captcha-spacer');
+      if (!spacer || !btn.parentNode.contains(spacer)) {
+        spacer = document.createElement('div');
+        spacer.id = 'prm-adv-captcha-spacer';
+        btn.parentNode.insertBefore(spacer, btn);
+      }
+      return spacer;
+    }
+
+    function placeHost(host) {
+      var spacer = ensureSpacer();
+      if (!spacer) {
+        host.style.display = 'none';
+        return;
+      }
+      var r = spacer.getBoundingClientRect();
+      host.style.display = 'block';
+      host.style.left = r.left + 'px';
+      host.style.top = r.top + 'px';
+      host.style.width = Math.max(300, r.width) + 'px';
     }
 
     function ensureBox() {
-      var form = document.querySelector('form');
-      if (!form) return null;
-      var box = document.getElementById('prm-adv-captcha');
-      if (box) return box;
-      box = document.createElement('div');
-      box.id = 'prm-adv-captcha';
-      var err = document.createElement('div');
-      err.id = 'prm-adv-captcha-error';
-      var btnWrap = null;
-      var buttons = form.querySelectorAll('button[type="submit"]');
-      if (buttons.length) btnWrap = buttons[0].parentNode;
-      if (btnWrap && btnWrap.parentNode) {
-        btnWrap.parentNode.insertBefore(box, btnWrap);
-        btnWrap.parentNode.insertBefore(err, btnWrap);
-      } else {
-        form.appendChild(box);
-        form.appendChild(err);
+      var host = document.getElementById('prm-adv-captcha-host');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'prm-adv-captcha-host';
+        var box = document.createElement('div');
+        box.id = 'prm-adv-captcha';
+        var err = document.createElement('div');
+        err.id = 'prm-adv-captcha-error';
+        host.appendChild(box);
+        host.appendChild(err);
+        document.body.appendChild(host);
       }
-      return box;
+      placeHost(host);
+      return document.getElementById('prm-adv-captcha');
+    }
+
+    function loadScript(src, cb) {
+      if (scriptState === 'ready') { cb(); return; }
+      if (scriptState === 'loading') return;
+      scriptState = 'loading';
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = function () { scriptState = 'ready'; cb(); };
+      s.onerror = function () {
+        scriptState = 'idle';
+        ensureBox();
+        showError('Captcha script yüklenemedi (Cloudflare/Google engeli).');
+      };
+      document.head.appendChild(s);
+    }
+
+    function apiReady() {
+      if (provider === 'recaptcha_v2') return window.grecaptcha && grecaptcha.render;
+      if (provider === 'hcaptcha') return window.hcaptcha && hcaptcha.render;
+      if (provider === 'turnstile') return window.turnstile && turnstile.render;
+      return false;
     }
 
     function renderWidget() {
       if (!onAuth()) return;
+      if (!apiReady()) return;
       var box = ensureBox();
       if (!box || box.getAttribute('data-ready') === '1') return;
+      if (provider === 'turnstile' && window.turnstile && turnstile.ready && !window.__prmAdvTsReady) {
+        window.__prmAdvTsReady = true;
+        turnstile.ready(function () { box.removeAttribute('data-ready'); renderWidget(); });
+        return;
+      }
       box.setAttribute('data-ready', '1');
       token = '';
       var done = function (value) {
@@ -200,28 +251,45 @@
         showError('');
       };
       try {
-        if (provider === 'recaptcha_v2' && window.grecaptcha && grecaptcha.render) {
+        if (provider === 'recaptcha_v2') {
           widgetId = grecaptcha.render(box, { sitekey: siteKey, theme: 'light', callback: done, 'expired-callback': function () { token = ''; } });
-        } else if (provider === 'hcaptcha' && window.hcaptcha && hcaptcha.render) {
+        } else if (provider === 'hcaptcha') {
           widgetId = hcaptcha.render(box, { sitekey: siteKey, theme: 'light', callback: done, 'expired-callback': function () { token = ''; } });
-        } else if (provider === 'turnstile' && window.turnstile && turnstile.render) {
-          widgetId = turnstile.render(box, { sitekey: siteKey, theme: 'light', callback: done, 'expired-callback': function () { token = ''; } });
-        } else {
-          box.removeAttribute('data-ready');
+        } else if (provider === 'turnstile') {
+          widgetId = turnstile.render(box, {
+            sitekey: siteKey,
+            theme: 'light',
+            appearance: 'always',
+            callback: done,
+            'expired-callback': function () { token = ''; },
+            'error-callback': function () {
+              box.removeAttribute('data-ready');
+              box.innerHTML = '';
+              showError('Turnstile bu hostta açılamadı. Gerçek site key kullan.');
+            }
+          });
         }
       } catch (e) {
         box.removeAttribute('data-ready');
+        box.innerHTML = '';
+        showError('Captcha çizilemedi.');
       }
     }
 
     function bootWidget() {
-      if (!onAuth()) return;
+      if (!onAuth()) {
+        var host = document.getElementById('prm-adv-captcha-host');
+        if (host) host.style.display = 'none';
+        return;
+      }
+      ensureBox();
+      var after = function () { renderWidget(); };
       if (provider === 'recaptcha_v2') {
-        loadScript('https://www.google.com/recaptcha/api.js?render=explicit', renderWidget);
+        loadScript('https://www.google.com/recaptcha/api.js?render=explicit', after);
       } else if (provider === 'hcaptcha') {
-        loadScript('https://js.hcaptcha.com/1/api.js?render=explicit', renderWidget);
+        loadScript('https://js.hcaptcha.com/1/api.js?render=explicit', after);
       } else if (provider === 'turnstile') {
-        loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit', renderWidget);
+        loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js', after);
       }
     }
 
@@ -252,6 +320,14 @@
     }
     disableNativeRecaptcha();
     setInterval(disableNativeRecaptcha, 250);
+    window.addEventListener('scroll', function () {
+      var host = document.getElementById('prm-adv-captcha-host');
+      if (host && onAuth()) placeHost(host);
+    }, true);
+    window.addEventListener('resize', function () {
+      var host = document.getElementById('prm-adv-captcha-host');
+      if (host && onAuth()) placeHost(host);
+    });
 
     var xhrOpen = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (method, url) {
@@ -279,7 +355,7 @@
 
     document.addEventListener('click', function (e) {
       if (!onAuth()) return;
-      var btn = e.target.closest && e.target.closest('form button[type="submit"]');
+      var btn = e.target.closest && e.target.closest('form button');
       if (!btn) return;
       if (token) {
         showError('');
@@ -287,25 +363,23 @@
       }
       e.preventDefault();
       e.stopPropagation();
-      showError('Lütfen captcha doğrulamasını tamamla.');
+      ensureBox();
+      showError(apiReady() ? 'Lütfen captcha doğrulamasını tamamla.' : 'Captcha henüz yüklenmedi, biraz bekle.');
     }, true);
 
     setInterval(function () {
       if (!onAuth()) return;
       if (location.pathname !== lastPath) {
         lastPath = location.pathname;
+        token = '';
+        widgetId = null;
         var old = document.getElementById('prm-adv-captcha');
         if (old) {
           old.removeAttribute('data-ready');
           old.innerHTML = '';
         }
-        token = '';
-        widgetId = null;
-        scriptLoaded = true;
-        renderWidget();
-      } else {
-        bootWidget();
       }
+      bootWidget();
     }, 400);
     bootWidget();
   })();

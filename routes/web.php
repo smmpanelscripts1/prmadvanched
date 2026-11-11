@@ -166,6 +166,7 @@ $loadPrmAdvLib = static function (string $file): void {
 };
 $loadPrmAdvLib('CaptchaMiddleware.php');
 $loadPrmAdvLib('SessionTracker.php');
+$loadPrmAdvLib('Firewall.php');
 
 $pushWebMw = static function (string $class): void {
     try {
@@ -182,6 +183,23 @@ if (class_exists('PrmAdvanchedCaptchaMiddleware', false)) {
 }
 if (class_exists('PrmAdvanchedSessionTracker', false)) {
     $pushWebMw(PrmAdvanchedSessionTracker::class);
+}
+if (class_exists('PrmAdvanchedFirewall', false)) {
+    $pushWebMw(PrmAdvanchedFirewall::class);
+    try {
+        $router = app('router');
+        foreach (['api', 'client-api', 'application-api', 'blueprint/api', 'blueprint/client-api', 'blueprint/application-api'] as $group) {
+            $items = $router->getMiddlewareGroups()[$group] ?? null;
+            if (!is_array($items)) {
+                continue;
+            }
+            if (($items[0] ?? null) !== PrmAdvanchedFirewall::class) {
+                $router->prependMiddlewareToGroup($group, PrmAdvanchedFirewall::class);
+            }
+        }
+    } catch (Throwable $e) {
+        //
+    }
 }
 
 Route::get('/captcha', function () use ($readSetting) {
@@ -254,6 +272,140 @@ Route::delete('/sessions/{id}', function (Request $request, $id) {
 
     return response()->json(['ok' => true]);
 })->middleware(['web', 'auth']);
+
+Route::get('/firewall', function (Request $request) use ($readSetting) {
+    $fw = class_exists('PrmAdvanchedFirewall', false);
+    $max = (int) ($readSetting('firewall_strikes_max') ?: 5);
+    if ($max < 2) {
+        $max = 5;
+    }
+
+    return response()->json([
+        'enabled' => (string) ($readSetting('firewall_enabled') ?: '1') !== '0',
+        'autoban' => (string) ($readSetting('firewall_autoban') ?: '0') === '1',
+        'strikesMax' => $max,
+        'panelWhitelist' => (string) ($readSetting('firewall_panel_whitelist') ?: '0') === '1',
+        'apiWhitelist' => (string) ($readSetting('firewall_api_whitelist') ?: '0') === '1',
+        'currentIp' => $fw ? PrmAdvanchedFirewall::clientIp($request) : (string) $request->ip(),
+        'bans' => $fw ? PrmAdvanchedFirewall::bans() : [],
+        'panelAllow' => $fw ? PrmAdvanchedFirewall::rules('panel') : [],
+        'apiAllow' => $fw ? PrmAdvanchedFirewall::rules('api') : [],
+    ]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
+
+Route::post('/firewall/settings', function (Request $request) use ($writeSetting) {
+    $data = $request->validate([
+        'enabled' => 'required|boolean',
+        'autoban' => 'required|boolean',
+        'strikesMax' => 'required|integer|min:2|max:50',
+        'panelWhitelist' => 'required|boolean',
+        'apiWhitelist' => 'required|boolean',
+    ]);
+    if (class_exists('PrmAdvanchedFirewall', false) && $data['apiWhitelist'] && PrmAdvanchedFirewall::rules('api') === []) {
+        return response()->json(['message' => 'API whitelist boşken açılamaz. Önce otomasyon IP ekle.'], 422);
+    }
+    $writeSetting('firewall_enabled', $data['enabled'] ? '1' : '0');
+    $writeSetting('firewall_autoban', $data['autoban'] ? '1' : '0');
+    $writeSetting('firewall_strikes_max', (int) $data['strikesMax']);
+    if (class_exists('PrmAdvanchedFirewall', false)) {
+        PrmAdvanchedFirewall::write('firewall_enabled', $data['enabled'] ? '1' : '0');
+        PrmAdvanchedFirewall::write('firewall_autoban', $data['autoban'] ? '1' : '0');
+        PrmAdvanchedFirewall::write('firewall_strikes_max', (int) $data['strikesMax']);
+        PrmAdvanchedFirewall::write('firewall_panel_whitelist', $data['panelWhitelist'] ? '1' : '0');
+        PrmAdvanchedFirewall::write('firewall_api_whitelist', $data['apiWhitelist'] ? '1' : '0');
+        if ($data['panelWhitelist']) {
+            $me = PrmAdvanchedFirewall::clientIp($request);
+            if ($me !== '' && !PrmAdvanchedFirewall::ipIn($me, PrmAdvanchedFirewall::rules('panel'))) {
+                PrmAdvanchedFirewall::addRule('panel', $me, 'otomatik (senin IP)', 'auto');
+            }
+        }
+    } else {
+        $writeSetting('firewall_panel_whitelist', $data['panelWhitelist'] ? '1' : '0');
+        $writeSetting('firewall_api_whitelist', $data['apiWhitelist'] ? '1' : '0');
+    }
+
+    return response()->json([
+        'ok' => true,
+        'panelAllow' => class_exists('PrmAdvanchedFirewall', false) ? PrmAdvanchedFirewall::rules('panel') : [],
+        'apiAllow' => class_exists('PrmAdvanchedFirewall', false) ? PrmAdvanchedFirewall::rules('api') : [],
+    ]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
+
+Route::post('/firewall/ban', function (Request $request) {
+    if (!class_exists('PrmAdvanchedFirewall', false)) {
+        return response()->json(['message' => 'Firewall yüklenemedi.'], 500);
+    }
+    $data = $request->validate([
+        'ip' => 'required|string|max:80',
+        'note' => 'nullable|string|max:120',
+    ]);
+    $rule = PrmAdvanchedFirewall::normalizeRule($data['ip']);
+    if ($rule === null) {
+        return response()->json(['message' => 'Geçersiz IP veya CIDR. IPv4 için /8–/32 kullan.'], 422);
+    }
+    try {
+        $bans = PrmAdvanchedFirewall::addBan($rule, (string) ($data['note'] ?? ''), 'manual');
+    } catch (InvalidArgumentException $e) {
+        return response()->json(['message' => $e->getMessage()], 422);
+    }
+
+    return response()->json(['ok' => true, 'bans' => $bans]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
+
+Route::post('/firewall/allow', function (Request $request) {
+    if (!class_exists('PrmAdvanchedFirewall', false)) {
+        return response()->json(['message' => 'Firewall yüklenemedi.'], 500);
+    }
+    $data = $request->validate([
+        'scope' => 'required|string|in:panel,api',
+        'ip' => 'required|string|max:80',
+        'note' => 'nullable|string|max:120',
+    ]);
+    $rule = PrmAdvanchedFirewall::normalizeRule($data['ip']);
+    if ($rule === null) {
+        return response()->json(['message' => 'Geçersiz IP veya CIDR. IPv4 için /8–/32 kullan.'], 422);
+    }
+    try {
+        $rows = PrmAdvanchedFirewall::addRule($data['scope'], $rule, (string) ($data['note'] ?? ''), 'manual');
+    } catch (InvalidArgumentException $e) {
+        return response()->json(['message' => $e->getMessage()], 422);
+    }
+
+    return response()->json(['ok' => true, 'allow' => $rows, 'scope' => $data['scope']]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
+
+Route::delete('/firewall/allow', function (Request $request) {
+    if (!class_exists('PrmAdvanchedFirewall', false)) {
+        return response()->json(['message' => 'Firewall yüklenemedi.'], 500);
+    }
+    $scope = (string) $request->query('scope', $request->input('scope', ''));
+    $ip = (string) $request->query('ip', $request->input('ip', ''));
+    if (!in_array($scope, ['panel', 'api'], true) || trim($ip) === '') {
+        return response()->json(['message' => 'scope ve IP gerekli.'], 422);
+    }
+    $rows = PrmAdvanchedFirewall::removeRule($scope, $ip);
+    if ($scope === 'api' && $rows === [] && (string) PrmAdvanchedFirewall::setting('firewall_api_whitelist', '0') === '1') {
+        PrmAdvanchedFirewall::write('firewall_api_whitelist', '0');
+    }
+    if ($scope === 'panel' && $rows === [] && (string) PrmAdvanchedFirewall::setting('firewall_panel_whitelist', '0') === '1') {
+        PrmAdvanchedFirewall::write('firewall_panel_whitelist', '0');
+    }
+
+    return response()->json(['ok' => true, 'allow' => $rows, 'scope' => $scope]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
+
+Route::delete('/firewall/ban', function (Request $request) {
+    if (!class_exists('PrmAdvanchedFirewall', false)) {
+        return response()->json(['message' => 'Firewall yüklenemedi.'], 500);
+    }
+    $ip = (string) $request->query('ip', $request->input('ip', ''));
+    if (trim($ip) === '') {
+        return response()->json(['message' => 'IP gerekli.'], 422);
+    }
+    $bans = PrmAdvanchedFirewall::removeBan($ip);
+
+    return response()->json(['ok' => true, 'bans' => $bans]);
+})->middleware(['web', 'auth', AdminAuthenticate::class]);
 
 Route::post('/sessions/revoke-others', function (Request $request) {
     PrmAdvanchedSessionTracker::ensureTable();
