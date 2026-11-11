@@ -1,0 +1,4 @@
+*.blueprint
+.DS_Store
+Thumbs.db
+inspect.php
