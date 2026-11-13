@@ -11,6 +11,7 @@
           sayfasından yönet.
         </p>
         <ul style="margin-bottom:0">
+          <li>Favicon: tarayıcı sekmesi ikonu.</li>
           <li>Logo: login, şifre sıfırlama ve 2FA sol görseli.</li>
           <li>Kullanıcı paneli arka planı: dashboard ve sunucu sayfaları.</li>
           <li>Giriş arka planı: login, kayıt, şifre sıfırlama, yeni şifre, 2FA.</li>

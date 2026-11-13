@@ -21,6 +21,7 @@
     }
   };
   $prmAdvLogo = $prmAdvRead('logo', 'logo');
+  $prmAdvFavicon = $prmAdvRead('favicon', 'favicon');
   $prmAdvPanelBg = $prmAdvRead('bg-panel', 'bg-panel');
   $prmAdvAuthBg = $prmAdvRead('bg-auth', 'bg-auth');
   $prmAdvIsAuth = request()->is('auth') || request()->is('auth/*');
@@ -98,6 +99,22 @@
 <script>
 (function () {
   var logoUrl = @json($prmAdvLogo);
+  var faviconUrl = @json($prmAdvFavicon);
+
+  function applyFavicon() {
+    if (!faviconUrl) return;
+    var links = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+    if (!links.length && document.head) {
+      var link = document.createElement('link');
+      link.rel = 'icon';
+      link.href = faviconUrl;
+      document.head.appendChild(link);
+      return;
+    }
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].href !== faviconUrl) links[i].href = faviconUrl;
+    }
+  }
 
   function applyLogo() {
     if (!logoUrl) return;
@@ -118,15 +135,18 @@
   }
 
   applyLogo();
+  applyFavicon();
   syncBgClass();
   var n = 0;
   var fast = setInterval(function () {
     applyLogo();
+    applyFavicon();
     syncBgClass();
     if (++n > 80) clearInterval(fast);
   }, 50);
   setInterval(function () {
     applyLogo();
+    applyFavicon();
     syncBgClass();
   }, 400);
 })();

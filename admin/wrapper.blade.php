@@ -1,6 +1,39 @@
 @php
   $isSettings = request()->is('admin/settings') && !request()->is('admin/settings/*');
+  $prmAdvFavicon = null;
+  try {
+    $prmFavRow = \Illuminate\Support\Facades\DB::table('settings')->where('key', 'prmadvanched::favicon')->first();
+    $prmFavFile = null;
+    if ($prmFavRow) {
+      try { $prmFavFile = unserialize($prmFavRow->value); } catch (\Throwable $e) { $prmFavFile = $prmFavRow->value; }
+    }
+    $prmFavPath = '/app/.blueprint/extensions/prmadvanched/assets/' . $prmFavFile;
+    if (is_string($prmFavFile) && $prmFavFile !== '' && is_file($prmFavPath)) {
+      $prmFavVer = '0';
+      $prmFavVerRow = \Illuminate\Support\Facades\DB::table('settings')->where('key', 'prmadvanched::favicon_v')->first();
+      if ($prmFavVerRow) {
+        try { $prmFavVer = (string) unserialize($prmFavVerRow->value); } catch (\Throwable $e) { $prmFavVer = (string) $prmFavVerRow->value; }
+      }
+      $prmAdvFavicon = '/assets/extensions/prmadvanched/' . rawurlencode($prmFavFile) . '?v=' . rawurlencode($prmFavVer);
+    }
+  } catch (\Throwable $e) {}
 @endphp
+@if($prmAdvFavicon)
+  <script>
+    (function () {
+      var url = @json($prmAdvFavicon);
+      var links = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+      if (!links.length && document.head) {
+        var link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = url;
+        document.head.appendChild(link);
+        return;
+      }
+      for (var i = 0; i < links.length; i++) links[i].href = url;
+    })();
+  </script>
+@endif
 
 @if($isSettings)
   <style>
@@ -15,6 +48,7 @@
       background-size: cover; background-position: center;
     }
     .prm-adv-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .prm-adv-preview.is-icon { width: 64px; height: 64px; flex-basis: 64px; }
     .prm-adv-preview span { color: #9aa5b1; font-size: 12px; padding: 8px; text-align: center; }
     .prm-adv-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .prm-adv-hint { margin: 10px 0 0; color: #9aa5b1; font-size: 12px; }
@@ -31,6 +65,7 @@
     var path = location.pathname.replace(/\/+$/, '');
     if (path !== '/admin/settings') return;
     var slots = [
+      { id: 'favicon', title: 'Favicon', hint: 'Tarayıcı sekmesi ikonu. PNG, SVG, WEBP, GIF veya ICO, 1 MB.', empty: 'Varsayılan pterodactyl ikonu', accept: 'image/png,image/svg+xml,image/webp,image/gif,image/x-icon,.ico', cover: false, icon: true },
       { id: 'logo', title: 'Panel logo', hint: 'Login, şifre sıfırlama ve 2FA sol görseli. PNG/JPG/WEBP/GIF/SVG, 2 MB.', empty: 'Varsayılan pterodactyl görseli', accept: 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml', cover: false },
       { id: 'panel', title: 'Kullanıcı paneli arka planı', hint: 'Dashboard ve sunucu sayfalarının arka planı. PNG/JPG/WEBP/GIF, 8 MB.', empty: 'Varsayılan koyu arka plan', accept: 'image/png,image/jpeg,image/webp,image/gif', cover: true },
       { id: 'auth', title: 'Giriş arka planı', hint: 'Login, kayıt, şifre sıfırlama, yeni şifre ve 2FA. PNG/JPG/WEBP/GIF, 8 MB.', empty: 'Varsayılan giriş arka planı', accept: 'image/png,image/jpeg,image/webp,image/gif', cover: true }
@@ -52,7 +87,7 @@
           '<div class="prm-adv-slot">' +
             '<h4>' + s.title + '</h4>' +
             '<div class="prm-adv-row">' +
-              '<div class="prm-adv-preview" id="prm-adv-preview-' + s.id + '"><span>' + s.empty + '</span></div>' +
+              '<div class="prm-adv-preview' + (s.icon ? ' is-icon' : '') + '" id="prm-adv-preview-' + s.id + '"><span>' + s.empty + '</span></div>' +
               '<div>' +
                 '<input type="file" id="prm-adv-file-' + s.id + '" accept="' + s.accept + '">' +
                 '<div class="prm-adv-actions">' +
@@ -156,11 +191,34 @@
       el.className = 'prm-adv-msg' + (text ? (ok ? ' is-ok' : ' is-fail') : '');
     }
 
+    function applyTabIcon(url) {
+      var links = document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]');
+      if (!url) {
+        for (var i = 0; i < links.length; i++) {
+          var sizes = links[i].getAttribute('sizes') || '';
+          if (sizes === '32x32') links[i].href = '/favicons/favicon-32x32.png';
+          else if (sizes === '16x16') links[i].href = '/favicons/favicon-16x16.png';
+          else if (links[i].rel.indexOf('apple') !== -1) links[i].href = '/favicons/apple-touch-icon.png';
+          else links[i].href = '/favicons/favicon.ico';
+        }
+        return;
+      }
+      if (!links.length && document.head) {
+        var link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = url;
+        document.head.appendChild(link);
+        return;
+      }
+      for (var j = 0; j < links.length; j++) links[j].href = url;
+    }
+
     function preview(id, url) {
       var box = document.getElementById('prm-adv-preview-' + id);
       var slot = slots.filter(function (s) { return s.id === id; })[0];
       if (!box) return;
       box.style.backgroundImage = '';
+      if (id === 'favicon') applyTabIcon(url);
       if (!url) {
         box.innerHTML = '<span>' + (slot ? slot.empty : '') + '</span>';
         return;

@@ -15,9 +15,10 @@ $allowed = [
     'image/svg+xml' => 'svg',
 ];
 $kinds = [
-    'logo' => ['file' => 'logo', 'max' => 2 * 1024 * 1024, 'svg' => true],
-    'panel' => ['file' => 'bg-panel', 'max' => 8 * 1024 * 1024, 'svg' => false],
-    'auth' => ['file' => 'bg-auth', 'max' => 8 * 1024 * 1024, 'svg' => false],
+    'logo' => ['file' => 'logo', 'max' => 2 * 1024 * 1024, 'svg' => true, 'ico' => false],
+    'favicon' => ['file' => 'favicon', 'max' => 1024 * 1024, 'svg' => true, 'ico' => true],
+    'panel' => ['file' => 'bg-panel', 'max' => 8 * 1024 * 1024, 'svg' => false, 'ico' => false],
+    'auth' => ['file' => 'bg-auth', 'max' => 8 * 1024 * 1024, 'svg' => false, 'ico' => false],
 ];
 
 $readSetting = static function (string $record) {
@@ -58,6 +59,7 @@ $readAsset = static function (string $kind) use ($assetsDir, $kinds, $readSettin
 $payload = static function () use ($readAsset): array {
     return [
         'logo' => ($readAsset('logo')['url'] ?? null),
+        'favicon' => ($readAsset('favicon')['url'] ?? null),
         'panel' => ($readAsset('panel')['url'] ?? null),
         'auth' => ($readAsset('auth')['url'] ?? null),
     ];
@@ -85,8 +87,21 @@ $store = static function (Request $request, string $kind) use ($assetsDir, $allo
             finfo_close($finfo);
         }
     }
-    if (!isset($allowed[$mime]) || ($mime === 'image/svg+xml' && !$kinds[$kind]['svg'])) {
-        return response()->json(['message' => 'PNG, JPG, WEBP veya GIF yükle.'], 422);
+    $icoMimes = ['image/x-icon', 'image/vnd.microsoft.icon', 'image/ico', 'image/icon'];
+    $isIco = !empty($kinds[$kind]['ico']) && (
+        in_array($mime, $icoMimes, true)
+        || strtolower((string) $file->getClientOriginalExtension()) === 'ico'
+    );
+    if ($isIco) {
+        $mime = 'image/x-icon';
+        $allowed['image/x-icon'] = 'ico';
+    }
+    if (!isset($allowed[$mime]) || ($mime === 'image/svg+xml' && empty($kinds[$kind]['svg']))) {
+        $hint = !empty($kinds[$kind]['ico'])
+            ? 'PNG, SVG, WEBP, GIF veya ICO yükle.'
+            : 'PNG, JPG, WEBP veya GIF yükle.';
+
+        return response()->json(['message' => $hint], 422);
     }
     if ($mime === 'image/svg+xml') {
         $raw = (string) file_get_contents($file->getRealPath());
